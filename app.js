@@ -1,11 +1,13 @@
 import fetch from "node-fetch";
 import SpotifyWebApi from "spotify-web-api-node";
+import YoutubeSearch from "./lib/YoutubeSearch";
+import YoutubeDownloader from "./lib/YoutubeDownloader";
 
 class SpotifyTrackFinder {
   constructor({
     clientId,
     clientSecret,
-    playlistName = "2021",
+    playlistName = "2019",
     userName = "sircaley",
   }) {
     this.spotifyApi = new SpotifyWebApi({
@@ -63,11 +65,45 @@ class SpotifyTrackFinder {
       headers: { Authorization: "Bearer " + global.accessToken },
     });
     const json = await response.json();
+    if (!json.items) {
+      console.log("No tracks fetched");
+      return;
+    }
 
-    console.log(`json: `, json);
+    const tracks = json.items.map(
+      ({ track: { artists, name, duration_ms } }) => ({
+        artist: artists.map(({ name }) => name).join(" "),
+        name,
+        duration_ms,
+      })
+    );
 
-    // console.log(`track name: `, trackData.items[0].track.name);
-    // console.log(`artists: `, trackData.items[0].track.artists[0].name);
+    this.findDownloadLinks(tracks);
+  };
+
+  findDownloadLinks = async (tracks) => {
+    const youtubeSearch = new YoutubeSearch();
+
+    const downloadLinks = await tracks.map(async ({ artist, name }) => {
+      const { results } = await youtubeSearch.init(`${artist} ${name}`);
+
+      const [{ link }] = results.filter(({ link, description }) => {
+        if (link.toLowerCase().indexOf("channel") !== -1) {
+          return false;
+        }
+        if (description.toLowerCase().indexOf("live") === -1) {
+          return { link, description };
+        }
+        return false;
+      });
+
+      return { artist, name, link };
+    });
+
+    Promise.all(downloadLinks).then((result) => {
+      const youtubeDownloader = new YoutubeDownloader();
+      youtubeDownloader.init(result);
+    });
   };
 }
 
